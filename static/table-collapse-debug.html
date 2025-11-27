@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>表格折叠功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .instructions {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .test-button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        .test-button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>表格折叠功能测试页面</h1>
+    
+    <div class="instructions">
+        <h3>测试说明：</h3>
+        <p>1. 打开 Open WebUI 前端页面：<a href="http://localhost:5173" target="_blank">http://localhost:5173</a></p>
+        <p>2. 在聊天中输入包含表格的消息，例如：</p>
+        <pre>
+| 姓名 | 年龄 | 城市 |
+|------|------|------|
+| 张三 | 25   | 北京 |
+| 李四 | 30   | 上海 |
+| 王五 | 28   | 广州 |
+        </pre>
+        <p>3. 查看表格右上角是否出现折叠按钮</p>
+        <p>4. 点击折叠按钮测试折叠/展开功能</p>
+    </div>
+
+    <div class="test-section">
+        <h3>测试步骤：</h3>
+        <ol>
+            <li>访问 <a href="http://localhost:5173" target="_blank">http://localhost:5173</a></li>
+            <li>发送一条包含表格的消息</li>
+            <li>将鼠标悬停在表格上，查看右上角是否出现折叠按钮</li>
+            <li>点击折叠按钮，测试折叠/展开功能</li>
+            <li>检查折叠状态是否被正确保存</li>
+        </ol>
+        
+        <button class="test-button" onclick="testAPI()">测试 API 连接</button>
+        <button class="test-button" onclick="testFrontend()">测试前端页面</button>
+        <div id="testResult"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>预期功能：</h3>
+        <ul>
+            <li>✅ 表格右上角显示折叠/展开按钮（悬停时显示）</li>
+            <li>✅ 点击按钮可以折叠/展开表格</li>
+            <li>✅ 折叠时显示表格摘要信息</li>
+            <li>✅ 折叠状态会被保存到本地存储</li>
+            <li>✅ 按钮图标会根据状态变化（向下箭头/向右箭头）</li>
+            <li>✅ 折叠/展开有平滑的动画效果</li>
+        </ul>
+    </div>
+
+    <script>
+        async function testAPI() {
+            const resultDiv = document.getElementById('testResult');
+            resultDiv.innerHTML = '测试 API 连接中...';
+            
+            try {
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `✅ API 连接成功: ${JSON.stringify(data, null, 2)}`;
+                } else {
+                    resultDiv.innerHTML = `❌ API 连接失败: ${response.status} ${response.statusText}`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `❌ API 连接错误: ${error.message}`;
+            }
+        }
+
+        function testFrontend() {
+            const resultDiv = document.getElementById('testResult');
+            resultDiv.innerHTML = '测试前端页面中...';
+            
+            try {
+                const testWindow = window.open('http://localhost:5173', '_blank');
+                if (testWindow) {
+                    resultDiv.innerHTML = '✅ 前端页面已在新窗口中打开';
+                } else {
+                    resultDiv.innerHTML = '❌ 无法打开前端页面（可能被浏览器阻止）';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `❌ 前端页面测试错误: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
+
+
+

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>消息折叠功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .instructions {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .message-example {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            background-color: #f9f9f9;
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196f3;
+        }
+        .assistant-message {
+            background-color: #f3e5f5;
+            border-left: 4px solid #9c27b0;
+        }
+    </style>
+</head>
+<body>
+    <h1>消息折叠功能测试页面</h1>
+    
+    <div class="instructions">
+        <h3>测试说明：</h3>
+        <p>1. 打开 Open WebUI 前端页面：<a href="http://localhost:5173" target="_blank">http://localhost:5173</a></p>
+        <p>2. 在聊天中发送一些消息，然后查看每条消息右上角是否出现折叠按钮</p>
+        <p>3. 测试用户消息和 AI 回复消息的折叠功能</p>
+        <p>4. 检查折叠状态是否被正确保存</p>
+    </div>
+
+    <div class="test-section">
+        <h3>测试用例 1：用户消息折叠</h3>
+        <div class="message-example user-message">
+            <strong>用户消息示例：</strong>
+            <p>"请帮我写一个 Python 函数来计算斐波那契数列的第 n 项，要求使用递归和动态规划两种方法实现，并比较它们的性能差异。"</p>
+            <p><em>预期：消息右上角应显示折叠按钮，点击后显示摘要</em></p>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h3>测试用例 2：AI 回复消息折叠</h3>
+        <div class="message-example assistant-message">
+            <strong>AI 回复示例：</strong>
+            <p>我来帮你实现斐波那契数列的两种方法：</p>
+            <pre><code># 递归方法
+def fibonacci_recursive(n):
+    if n <= 1:
+        return n
+    return fibonacci_recursive(n-1) + fibonacci_recursive(n-2)
+
+# 动态规划方法
+def fibonacci_dp(n):
+    if n <= 1:
+        return n
+    dp = [0] * (n + 1)
+    dp[1] = 1
+    for i in range(2, n + 1):
+        dp[i] = dp[i-1] + dp[i-2]
+    return dp[n]</code></pre>
+            <p>性能比较：递归方法的时间复杂度是 O(2^n)，而动态规划方法的时间复杂度是 O(n)。</p>
+            <p><em>预期：长回复消息右上角应显示折叠按钮，点击后显示摘要</em></p>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h3>测试用例 3：包含表格的消息折叠</h3>
+        <div class="message-example assistant-message">
+            <strong>包含表格的 AI 回复：</strong>
+            <p>以下是不同算法的性能对比：</p>
+            <table border="1" style="border-collapse: collapse; width: 100%;">
+                <tr>
+                    <th>算法</th>
+                    <th>时间复杂度</th>
+                    <th>空间复杂度</th>
+                    <th>适用场景</th>
+                </tr>
+                <tr>
+                    <td>递归</td>
+                    <td>O(2^n)</td>
+                    <td>O(n)</td>
+                    <td>小规模数据</td>
+                </tr>
+                <tr>
+                    <td>动态规划</td>
+                    <td>O(n)</td>
+                    <td>O(n)</td>
+                    <td>大规模数据</td>
+                </tr>
+            </table>
+            <p><em>预期：包含表格的消息也应该可以折叠</em></p>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h3>预期功能：</h3>
+        <ul>
+            <li>✅ 每条消息右上角显示折叠/展开按钮（悬停时显示）</li>
+            <li>✅ 点击按钮可以折叠/展开消息内容</li>
+            <li>✅ 折叠时显示消息摘要信息</li>
+            <li>✅ 折叠状态会被保存到本地存储</li>
+            <li>✅ 按钮图标会根据状态变化（向下箭头/向右箭头）</li>
+            <li>✅ 折叠/展开有平滑的动画效果</li>
+            <li>✅ 用户消息和 AI 回复都支持折叠</li>
+            <li>✅ 包含表格、代码块等复杂内容的消息也支持折叠</li>
+        </ul>
+    </div>
+
+    <div class="test-section">
+        <h3>测试步骤：</h3>
+        <ol>
+            <li>访问 <a href="http://localhost:5173" target="_blank">http://localhost:5173</a></li>
+            <li>发送一条较长的消息</li>
+            <li>等待 AI 回复（如果回复较长）</li>
+            <li>将鼠标悬停在消息上，查看右上角是否出现折叠按钮</li>
+            <li>点击折叠按钮，测试折叠/展开功能</li>
+            <li>刷新页面，检查折叠状态是否被保存</li>
+            <li>测试不同类型的消息（文本、代码、表格等）</li>
+        </ol>
+    </div>
+</body>
+</html>
+
+
+

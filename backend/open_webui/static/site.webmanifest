@@ -1,0 +1,21 @@
+{
+  "name": "ZeroErr GPT",
+  "short_name": "ZeroErr GPT",
+  "icons": [
+    {
+      "src": "/static/zeroerr-logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/static/zeroerr-logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "maskable"
+    }
+  ],
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "display": "standalone"
+}

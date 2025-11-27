@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>表格折叠功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .instructions {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>表格折叠功能测试页面</h1>
+    
+    <div class="instructions">
+        <h3>测试说明：</h3>
+        <p>1. 打开 Open WebUI 前端页面：<a href="http://localhost:5173" target="_blank">http://localhost:5173</a></p>
+        <p>2. 在聊天中输入包含表格的消息，例如：</p>
+        <pre>
+| 姓名 | 年龄 | 城市 |
+|------|------|------|
+| 张三 | 25   | 北京 |
+| 李四 | 30   | 上海 |
+| 王五 | 28   | 广州 |
+        </pre>
+        <p>3. 查看表格右上角是否出现折叠按钮</p>
+        <p>4. 点击折叠按钮测试折叠/展开功能</p>
+        <p>5. 检查折叠状态是否被正确保存</p>
+    </div>
+
+    <div class="test-section">
+        <h3>测试用例 1：简单表格</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>产品名称</th>
+                    <th>价格</th>
+                    <th>库存</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>iPhone 15</td>
+                    <td>¥7999</td>
+                    <td>50</td>
+                </tr>
+                <tr>
+                    <td>Samsung Galaxy S24</td>
+                    <td>¥6999</td>
+                    <td>30</td>
+                </tr>
+                <tr>
+                    <td>小米14</td>
+                    <td>¥3999</td>
+                    <td>100</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="test-section">
+        <h3>测试用例 2：复杂表格</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>部门</th>
+                    <th>员工姓名</th>
+                    <th>职位</th>
+                    <th>薪资</th>
+                    <th>入职日期</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>技术部</td>
+                    <td>张三</td>
+                    <td>高级工程师</td>
+                    <td>¥15000</td>
+                    <td>2023-01-15</td>
+                </tr>
+                <tr>
+                    <td>技术部</td>
+                    <td>李四</td>
+                    <td>中级工程师</td>
+                    <td>¥12000</td>
+                    <td>2023-03-20</td>
+                </tr>
+                <tr>
+                    <td>市场部</td>
+                    <td>王五</td>
+                    <td>市场经理</td>
+                    <td>¥13000</td>
+                    <td>2023-02-10</td>
+                </tr>
+                <tr>
+                    <td>人事部</td>
+                    <td>赵六</td>
+                    <td>HR专员</td>
+                    <td>¥8000</td>
+                    <td>2023-04-05</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="test-section">
+        <h3>预期功能：</h3>
+        <ul>
+            <li>✅ 表格右上角显示折叠/展开按钮</li>
+            <li>✅ 点击按钮可以折叠/展开表格</li>
+            <li>✅ 折叠时显示表格摘要信息</li>
+            <li>✅ 折叠状态会被保存到本地存储</li>
+            <li>✅ 按钮图标会根据状态变化（向下箭头/向右箭头）</li>
+            <li>✅ 折叠/展开有平滑的动画效果</li>
+        </ul>
+    </div>
+</body>
+</html>
+
+
+
