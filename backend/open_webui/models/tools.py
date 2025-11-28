@@ -257,7 +257,8 @@ class ToolsTable:
                         if db.bind.dialect.name == "sqlite":
                             db.execute(text("ALTER TABLE tool ADD COLUMN default_for_group_ids TEXT DEFAULT '[]'"))
                         else:
-                            db.execute(text("ALTER TABLE tool ADD COLUMN default_for_group_ids JSON DEFAULT '[]'"))
+                            # PostgreSQL requires JSON type with proper casting
+                            db.execute(text("ALTER TABLE tool ADD COLUMN default_for_group_ids JSON DEFAULT '[]'::json"))
                         db.commit()
                         log.info("Added default_for_group_ids column to tool table")
                     

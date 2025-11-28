@@ -62,7 +62,15 @@ def run_migrations():
         migrations_path = OPEN_WEBUI_DIR / "migrations"
         alembic_cfg.set_main_option("script_location", str(migrations_path))
 
-        command.upgrade(alembic_cfg, "head")
+        # Try to upgrade to head, if multiple heads exist, upgrade all heads
+        try:
+            command.upgrade(alembic_cfg, "head")
+        except Exception as e:
+            if "Multiple head revisions" in str(e) or "Multiple heads" in str(e):
+                log.warning("Multiple head revisions detected, upgrading all heads")
+                command.upgrade(alembic_cfg, "heads")
+            else:
+                raise
     except Exception as e:
         log.exception(f"Error running migrations: {e}")
 

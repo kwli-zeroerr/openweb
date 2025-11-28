@@ -147,7 +147,7 @@ class Analytics:
                 cutoff_timestamp = int((datetime.now() - timedelta(days=days)).timestamp())
                 
                 for user in users:
-                    # 从chat表获取对话数量（一问一答算一次对话）
+                    # 从chat表获取对话数量（一问一答算一次对话：user消息后必须有assistant回复才算一次对话）
                     try:
                         result = db.execute(text("""
                             SELECT chat FROM chat 
@@ -162,20 +162,26 @@ class Analytics:
                         for (chat_json,) in chat_records:
                             if chat_json:
                                 try:
-                                    chat_data = json.loads(chat_json)
-                                    if 'messages' in chat_data:
+                                    # PostgreSQL JSON 字段直接是 dict
+                                    chat_data = chat_json if isinstance(chat_json, dict) else json.loads(chat_json)
+                                    
+                                    if chat_data and 'messages' in chat_data:
                                         messages = chat_data['messages']
-                                        # 计算对话数（一问一答算一次对话）
+                                        # 计算对话数：一问一答算一次对话
+                                        # 遍历消息，当遇到 user 消息时，检查后面是否有 assistant 回复
                                         conversations = 0
-                                        for i in range(0, len(messages), 2):
-                                            if i + 1 < len(messages):
-                                                user_msg = messages[i]
-                                                assistant_msg = messages[i + 1]
-                                                if (user_msg.get('role') == 'user' and 
-                                                    assistant_msg.get('role') == 'assistant'):
+                                        for i, msg in enumerate(messages):
+                                            if msg.get('role') == 'user':
+                                                # 检查后续消息中是否有 assistant 回复
+                                                has_assistant_reply = any(
+                                                    m.get('role') == 'assistant' 
+                                                    for m in messages[i+1:]
+                                                )
+                                                if has_assistant_reply:
                                                     conversations += 1
                                         total_messages += conversations
-                                except Exception:
+                                except Exception as e:
+                                    print(f"Error parsing chat data: {e}")
                                     pass
                     except Exception as e:
                         print(f"Error getting chat data for user {user.id}: {e}")
@@ -185,8 +191,8 @@ class Analytics:
                     try:
                         result = db.execute(text("""
                             SELECT 
-                                SUM(CASE WHEN JSON_EXTRACT(f.data, '$.rating') = 1 THEN 1 ELSE 0 END) as thumbs_up,
-                                SUM(CASE WHEN JSON_EXTRACT(f.data, '$.rating') = -1 THEN 1 ELSE 0 END) as thumbs_down
+                                SUM(CASE WHEN (f.data->>'rating')::int = 1 THEN 1 ELSE 0 END) as thumbs_up,
+                                SUM(CASE WHEN (f.data->>'rating')::int = -1 THEN 1 ELSE 0 END) as thumbs_down
                             FROM feedback f
                             WHERE f.user_id = :user_id 
                                 AND f.created_at >= :cutoff_timestamp
@@ -285,20 +291,26 @@ class Analytics:
                             active_users.add(user_id)
                             if chat_json:
                                 try:
-                                    chat_data = json.loads(chat_json)
-                                    if 'messages' in chat_data:
+                                    # PostgreSQL JSON 字段直接是 dict
+                                    chat_data = chat_json if isinstance(chat_json, dict) else json.loads(chat_json)
+                                    
+                                    if chat_data and 'messages' in chat_data:
                                         messages = chat_data['messages']
-                                        # 计算对话数（一问一答算一次对话）
+                                        # 计算对话数：一问一答算一次对话
+                                        # 遍历消息，当遇到 user 消息时，检查后面是否有 assistant 回复
                                         conversations = 0
-                                        for j in range(0, len(messages), 2):
-                                            if j + 1 < len(messages):
-                                                user_msg = messages[j]
-                                                assistant_msg = messages[j + 1]
-                                                if (user_msg.get('role') == 'user' and 
-                                                    assistant_msg.get('role') == 'assistant'):
+                                        for i, msg in enumerate(messages):
+                                            if msg.get('role') == 'user':
+                                                # 检查后续消息中是否有 assistant 回复
+                                                has_assistant_reply = any(
+                                                    m.get('role') == 'assistant' 
+                                                    for m in messages[i+1:]
+                                                )
+                                                if has_assistant_reply:
                                                     conversations += 1
                                         daily_messages += conversations
-                                except Exception:
+                                except Exception as e:
+                                    print(f"Error parsing daily chat data: {e}")
                                     pass
                         
                         daily_active_users = len(active_users)
@@ -309,12 +321,12 @@ class Analytics:
                         daily_active_users = 0
                         total_messages = 0
                     
-                    # 从feedback表获取当天的点赞点踩数据
+                    # 从feedback表获取当天的点赞点踩数据（PostgreSQL JSON 操作符）
                     try:
                         result = db.execute(text("""
                             SELECT 
-                                SUM(CASE WHEN JSON_EXTRACT(f.data, '$.rating') = 1 THEN 1 ELSE 0 END) as thumbs_up,
-                                SUM(CASE WHEN JSON_EXTRACT(f.data, '$.rating') = -1 THEN 1 ELSE 0 END) as thumbs_down
+                                SUM(CASE WHEN (f.data->>'rating')::int = 1 THEN 1 ELSE 0 END) as thumbs_up,
+                                SUM(CASE WHEN (f.data->>'rating')::int = -1 THEN 1 ELSE 0 END) as thumbs_down
                             FROM feedback f
                             WHERE f.created_at >= :start_timestamp AND f.created_at < :end_timestamp
                         """), {

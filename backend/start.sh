@@ -3,6 +3,23 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd "$SCRIPT_DIR" || exit
 
+# 自动配置 PostgreSQL（如果 DATABASE_URL 未设置）
+if [ -z "${DATABASE_URL}" ]; then
+  # 检查项目根目录的 .env 文件
+  BASE_DIR=$(dirname "$SCRIPT_DIR")
+  if [ -f "${BASE_DIR}/.env" ]; then
+    # 从 .env 文件加载 DATABASE_URL
+    export $(grep -v '^#' "${BASE_DIR}/.env" | grep DATABASE_URL | xargs)
+  fi
+  
+  # 如果仍然未设置，使用默认的 PostgreSQL 配置
+  if [ -z "${DATABASE_URL}" ]; then
+    export DATABASE_URL="postgresql://zeroerr:zero0000@localhost:5432/zeroerr_meta"
+    echo "ℹ️  未设置 DATABASE_URL，使用默认 PostgreSQL 配置"
+    echo "   DATABASE_URL: postgresql://zeroerr:***@localhost:5432/zeroerr_meta"
+  fi
+fi
+
 # Add conditional Playwright browser installation
 if [[ "${WEB_LOADER_ENGINE,,}" == "playwright" ]]; then
     if [[ -z "${PLAYWRIGHT_WS_URL}" ]]; then
@@ -20,7 +37,7 @@ else
     KEY_FILE=".webui_secret_key"
 fi
 
-PORT="${PORT:-8080}"
+PORT="${PORT:-5556}"
 HOST="${HOST:-0.0.0.0}"
 if test "$WEBUI_SECRET_KEY $WEBUI_JWT_SECRET_KEY" = " "; then
   echo "Loading WEBUI_SECRET_KEY from file, not provided as an environment variable."

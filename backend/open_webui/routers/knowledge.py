@@ -772,7 +772,7 @@ def remove_file_from_knowledge_by_id(
             
             if ocr_task_id:
                 # 构建 OCR 结果目录路径
-                knowledge_dir = Path(f"/home/zeroerr-ai72/openwebui-zeroerr/backend/data/uploads/knowledge/{id}")
+                knowledge_dir = UPLOAD_DIR / "knowledge" / id
                 ocr_result_dir = knowledge_dir / f"ocr_result_{ocr_task_id}"
                 
                 # 如果目录存在，删除整个目录
@@ -785,7 +785,7 @@ def remove_file_from_knowledge_by_id(
             else:
                 # 如果没有存储 task_id，尝试从文件内容中查找
                 # 或者扫描知识库目录，查找所有 ocr_result_* 目录
-                knowledge_dir = Path(f"/home/zeroerr-ai72/openwebui-zeroerr/backend/data/uploads/knowledge/{id}")
+                knowledge_dir = UPLOAD_DIR / "knowledge" / id
                 if knowledge_dir.exists():
                     # 查找所有 ocr_result_* 目录
                     for ocr_dir in knowledge_dir.glob("ocr_result_*"):
@@ -1317,7 +1317,7 @@ async def get_knowledge_directory_file(
             )
         
         # 构建知识库目录路径
-        knowledge_dir = Path(f"/home/zeroerr-ai72/openwebui-zeroerr/backend/data/uploads/knowledge/{id}")
+        knowledge_dir = UPLOAD_DIR / "knowledge" / id
         
         # 构建文件完整路径（防止路径遍历攻击）
         file_full_path = (knowledge_dir / file_path).resolve()
@@ -1391,7 +1391,7 @@ async def list_knowledge_directory_files(
             )
         
         # 构建知识库目录路径
-        knowledge_dir = Path(f"/home/zeroerr-ai72/openwebui-zeroerr/backend/data/uploads/knowledge/{id}")
+        knowledge_dir = UPLOAD_DIR / "knowledge" / id
         
         # 构建目录完整路径（防止路径遍历攻击）
         dir_full_path = (knowledge_dir / dir_path).resolve()
@@ -1494,7 +1494,7 @@ async def save_knowledge_directory_file(
             )
         
         # 构建知识库目录路径
-        knowledge_dir = Path(f"/home/zeroerr-ai72/openwebui-zeroerr/backend/data/uploads/knowledge/{id}")
+        knowledge_dir = UPLOAD_DIR / "knowledge" / id
         
         # 构建文件完整路径（防止路径遍历攻击）
         file_full_path = (knowledge_dir / form_data.file_path).resolve()
@@ -1872,7 +1872,7 @@ async def auto_segment_ocr_result(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
-    knowledge_dir = Path(f"/home/zeroerr-ai72/openwebui-zeroerr/backend/data/uploads/knowledge/{id}")
+    knowledge_dir = UPLOAD_DIR / "knowledge" / id
     ocr_dir = knowledge_dir / f"ocr_result_{form_data.ocr_task_id}"
     if not ocr_dir.exists():
         raise HTTPException(
@@ -1950,7 +1950,7 @@ async def get_ocr_segments(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
-    knowledge_dir = Path(f"/home/zeroerr-ai72/openwebui-zeroerr/backend/data/uploads/knowledge/{id}")
+    knowledge_dir = UPLOAD_DIR / "knowledge" / id
     manifest_path = knowledge_dir / f"ocr_result_{ocr_task_id}" / "segments" / "index.json"
 
     if not manifest_path.exists():
@@ -2001,7 +2001,7 @@ async def delete_ocr_segments(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
-    knowledge_dir = Path(f"/home/zeroerr-ai72/openwebui-zeroerr/backend/data/uploads/knowledge/{id}")
+    knowledge_dir = UPLOAD_DIR / "knowledge" / id
     segments_dir = knowledge_dir / f"ocr_result_{ocr_task_id}" / "segments"
 
     if not segments_dir.exists():

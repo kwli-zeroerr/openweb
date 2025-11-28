@@ -329,3 +329,7 @@ analytics_table_info.txt
 ticket_table_info.txt
 user_table_info.txt
 cookies.txt
+
+# 备份和导出目录
+backups/
+knowledge_base_only/

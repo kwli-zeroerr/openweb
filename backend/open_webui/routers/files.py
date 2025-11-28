@@ -962,7 +962,22 @@ async def get_file_content_by_id(
         or has_access_to_file(id, "read", user)
     ):
         try:
+            # 检查 file.path 是否存在
+            if not file.path:
+                log.error(f"File {id} has no path")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=ERROR_MESSAGES.NOT_FOUND,
+                )
+            
             file_path = Storage.get_file(file.path)
+            if not file_path:
+                log.error(f"Storage.get_file returned None for path: {file.path}")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=ERROR_MESSAGES.NOT_FOUND,
+                )
+            
             file_path = Path(file_path)
 
             # Check if the file already exists in the cache

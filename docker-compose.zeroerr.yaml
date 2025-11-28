@@ -1,0 +1,175 @@
+version: '3.8'
+
+# ZeroErr GPT 数据存储架构 - Docker Compose 配置
+# 包含 L1-L4 所有层级的服务
+# 使用方式: docker-compose -f docker-compose.zeroerr.yaml up -d
+
+services:
+  # ============================================
+  # L2: PostgreSQL 元数据层（单一真理来源）
+  # ============================================
+  postgres:
+    image: postgres:15
+    container_name: zeroerr-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zeroerr_meta}
+      POSTGRES_USER: ${POSTGRES_USER:-zeroerr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zero0000}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zeroerr}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - zeroerr-network
+
+  # ============================================
+  # L3: MinIO 对象存储（数据湖）
+  # ============================================
+  minio:
+    image: minio/minio:latest
+    container_name: zeroerr-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-zero0000}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "${MINIO_PORT:-9000}:9000"   # API 端口
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"  # 控制台端口
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - zeroerr-network
+
+  # MinIO 客户端（用于初始化 buckets）
+  minio-init:
+    image: minio/mc:latest
+    container_name: zeroerr-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-zero0000};
+      /usr/bin/mc mb myminio/raw-data || true;
+      /usr/bin/mc mb myminio/rag || true;
+      /usr/bin/mc mb myminio/assets || true;
+      /usr/bin/mc mb myminio/external-sync || true;
+      echo 'MinIO buckets initialized';
+      "
+    networks:
+      - zeroerr-network
+
+  # ============================================
+  # L1: Redis 缓存层（可选，未来扩展）
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: zeroerr-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-zero0000}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - zeroerr-network
+
+  # ============================================
+  # L4: Elasticsearch 向量数据库（通过 Ragflow）
+  # ============================================
+  # 注意: Ragflow 有自己的 Elasticsearch 配置
+  # 这里可以配置独立的 ES 或使用 Ragflow 的 ES
+  # 如果需要独立的 ES，取消下面的注释：
+  # elasticsearch:
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+  #   container_name: zeroerr-elasticsearch
+  #   environment:
+  #     - discovery.type=single-node
+  #     - xpack.security.enabled=false
+  #     - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+  #   volumes:
+  #     - elasticsearch_data:/usr/share/elasticsearch/data
+  #   ports:
+  #     - "9200:9200"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #   networks:
+  #     - zeroerr-network
+
+  # ============================================
+  # OpenWebUI 应用服务
+  # ============================================
+  open-webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG:-main}
+    container_name: zeroerr-open-webui
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPEN_WEBUI_PORT:-5556}:5556"
+    environment:
+      # 应用端口配置（容器内也使用 5556）
+      - PORT=5556
+      # PostgreSQL 数据库连接（使用 Docker 服务名）
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-zeroerr}:${POSTGRES_PASSWORD:-zero0000}@postgres:5432/${POSTGRES_DB:-zeroerr_meta}
+      # MinIO 连接（使用 Docker 服务名）
+      - MINIO_HOST=${MINIO_HOST:-minio}
+      - MINIO_PORT=${MINIO_PORT:-9000}
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-zero0000}
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-local}
+      # Redis 连接（使用 Docker 服务名）
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-zero0000}@redis:6379/0
+      # 其他配置
+      - DATA_DIR=/app/backend/data
+      - DOCKER=true
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+    networks:
+      - zeroerr-network
+
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  redis_data:
+    driver: local
+  open-webui-data:
+    driver: local
+  # elasticsearch_data:
+  #   driver: local
+
+networks:
+  zeroerr-network:
+    driver: bridge
+
