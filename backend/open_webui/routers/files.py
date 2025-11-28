@@ -980,6 +980,13 @@ async def get_file_content_by_id(
             
             file_path = Path(file_path)
 
+            # Storage.get_file() 已经返回绝对路径，不需要再次处理
+            # 但为了兼容性，检查一下
+            if not file_path.is_absolute():
+                from open_webui.config import UPLOAD_DIR
+                file_path = Path(UPLOAD_DIR) / file_path
+                log.debug(f"Resolved relative path to absolute: {file_path}")
+
             # Check if the file already exists in the cache
             if file_path.is_file():
                 # Handle Unicode filenames
@@ -1016,13 +1023,30 @@ async def get_file_content_by_id(
                 return FileResponse(file_path, headers=headers, media_type=content_type)
 
             else:
+                # 增强错误日志
+                log.error(
+                    f"File not found: file_id={id}, "
+                    f"file.path={file.path}, "
+                    f"resolved_path={file_path}, "
+                    f"path_exists={file_path.exists()}, "
+                    f"is_file={file_path.is_file()}, "
+                    f"is_dir={file_path.is_dir() if file_path.exists() else False}"
+                )
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=ERROR_MESSAGES.NOT_FOUND,
                 )
+        except HTTPException:
+            # 重新抛出 HTTP 异常（如 404），不包装为 400
+            raise
         except Exception as e:
             log.exception(e)
-            log.error("Error getting file content")
+            log.error(
+                f"Error getting file content: file_id={id}, "
+                f"file.path={file.path if file else 'N/A'}, "
+                f"error={str(e)}, "
+                f"error_type={type(e).__name__}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=ERROR_MESSAGES.DEFAULT("Error getting file content"),

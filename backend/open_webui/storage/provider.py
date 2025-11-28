@@ -68,15 +68,31 @@ class LocalStorageProvider(StorageProvider):
         contents = file.read()
         if not contents:
             raise ValueError(ERROR_MESSAGES.EMPTY_CONTENT)
-        file_path = f"{UPLOAD_DIR}/{filename}"
-        with open(file_path, "wb") as f:
+        # 物理文件保存到绝对路径
+        absolute_file_path = os.path.join(UPLOAD_DIR, filename)
+        with open(absolute_file_path, "wb") as f:
             f.write(contents)
-        return contents, file_path
+        # 返回相对路径用于数据库存储
+        return contents, filename
 
     @staticmethod
     def get_file(file_path: str) -> str:
         """Handles downloading of the file from local storage."""
-        return file_path
+        # 如果是绝对路径，检查是否在 UPLOAD_DIR 下（兼容旧数据）
+        if os.path.isabs(file_path):
+            try:
+                upload_dir_str = str(UPLOAD_DIR)
+                # 尝试从绝对路径中提取相对路径
+                if upload_dir_str in file_path:
+                    relative_path = os.path.relpath(file_path, upload_dir_str)
+                    return os.path.join(upload_dir_str, relative_path)
+                # 如果不在 UPLOAD_DIR 下，直接返回（可能是外部路径）
+                return file_path
+            except ValueError:
+                # 如果无法计算相对路径，直接返回
+                return file_path
+        # 如果是相对路径，加上 UPLOAD_DIR
+        return os.path.join(str(UPLOAD_DIR), file_path)
 
     @staticmethod
     def delete_file(file_path: str) -> None:

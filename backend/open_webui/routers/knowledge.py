@@ -17,6 +17,8 @@ from open_webui.models.knowledge import (
 )
 from open_webui.models.files import Files, FileModel, FileMetadataResponse
 from open_webui.models.knowledge_logs import KnowledgeLogs, KnowledgeLogForm
+from open_webui.models.knowledge_file_link import KnowledgeFileLinks
+from open_webui.models.file_version import FileVersions
 from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 from open_webui.routers.retrieval import (
     process_file,
@@ -595,6 +597,19 @@ def add_file_to_knowledge_by_id(
                         "collection_name": id,
                     },
                 )
+                
+                # 创建知识库-文件关联记录（使用新的规范化表）
+                try:
+                    link = KnowledgeFileLinks.create_link(
+                        knowledge_id=id,
+                        file_id=form_data.file_id,
+                        is_indexed=False  # 默认未索引，后续处理完成后更新
+                    )
+                    if link:
+                        print(f"✅ 已创建知识库-文件关联: knowledge_id={id}, file_id={form_data.file_id}")
+                except Exception as e:
+                    # 如果关联已存在，忽略错误
+                    log.debug(f"创建知识库-文件关联时出错（可能已存在）: {e}")
                 
                 # 记录文件添加日志
                 print(f"🔍 DEBUG: 文件添加 - knowledge_id: {id}, file_id: {form_data.file_id}")
