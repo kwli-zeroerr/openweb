@@ -66,9 +66,9 @@ services:
       sleep 5;
       /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-zero0000};
       /usr/bin/mc mb myminio/raw-data || true;
-      /usr/bin/mc mb myminio/rag || true;
+      /usr/bin/mc mb myminio/knowledge || true;
       /usr/bin/mc mb myminio/assets || true;
-      /usr/bin/mc mb myminio/external-sync || true;
+      /usr/bin/mc mb myminio/external || true;
       echo 'MinIO buckets initialized';
       "
     networks:
@@ -95,67 +95,90 @@ services:
       - zeroerr-network
 
   # ============================================
-  # L4: Elasticsearch 向量数据库（通过 Ragflow）
+  # L4: Elasticsearch 向量数据库（共享服务）
   # ============================================
-  # 注意: Ragflow 有自己的 Elasticsearch 配置
-  # 这里可以配置独立的 ES 或使用 Ragflow 的 ES
-  # 如果需要独立的 ES，取消下面的注释：
-  # elasticsearch:
-  #   image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-  #   container_name: zeroerr-elasticsearch
-  #   environment:
-  #     - discovery.type=single-node
-  #     - xpack.security.enabled=false
-  #     - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-  #   volumes:
-  #     - elasticsearch_data:/usr/share/elasticsearch/data
-  #   ports:
-  #     - "9200:9200"
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 5
-  #   networks:
-  #     - zeroerr-network
-
-  # ============================================
-  # OpenWebUI 应用服务
-  # ============================================
-  open-webui:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG:-main}
-    container_name: zeroerr-open-webui
-    volumes:
-      - open-webui-data:/app/backend/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPEN_WEBUI_PORT:-5556}:5556"
+  # 基于 Ragflow 的 es01 配置，供 OpenWebUI 和 Ragflow 共享使用
+  elasticsearch:
+    image: elasticsearch:${STACK_VERSION:-8.11.3}
+    container_name: zeroerr-elasticsearch
     environment:
-      # 应用端口配置（容器内也使用 5556）
-      - PORT=5556
-      # PostgreSQL 数据库连接（使用 Docker 服务名）
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-zeroerr}:${POSTGRES_PASSWORD:-zero0000}@postgres:5432/${POSTGRES_DB:-zeroerr_meta}
-      # MinIO 连接（使用 Docker 服务名）
-      - MINIO_HOST=${MINIO_HOST:-minio}
-      - MINIO_PORT=${MINIO_PORT:-9000}
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-zero0000}
-      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-local}
-      # Redis 连接（使用 Docker 服务名）
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-zero0000}@redis:6379/0
-      # 其他配置
-      - DATA_DIR=/app/backend/data
-      - DOCKER=true
-    extra_hosts:
-      - host.docker.internal:host-gateway
+      - node.name=es01
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-zero0000}
+      - bootstrap.memory_lock=false
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - cluster.routing.allocation.disk.watermark.low=5gb
+      - cluster.routing.allocation.disk.watermark.high=3gb
+      - cluster.routing.allocation.disk.watermark.flood_stage=2gb
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "${ES_PORT:-9200}:9200"
+    mem_limit: ${MEM_LIMIT:-8073741824}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 120
     restart: unless-stopped
     networks:
       - zeroerr-network
+
+  # ============================================
+  # OpenWebUI 应用服务（已禁用 - 从本地运行）
+  # ============================================
+  # 注意: 如果从本地运行 OpenWebUI，请注释掉此服务
+  # 使用 docker-compose.shared-services.yaml 只启动共享服务
+  # open-webui:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG:-main}
+  #   container_name: zeroerr-open-webui
+  #   volumes:
+  #     - open-webui-data:/app/backend/data
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     minio:
+  #       condition: service_healthy
+  #     elasticsearch:
+  #       condition: service_healthy
+  #   ports:
+  #     - "${OPEN_WEBUI_PORT:-5556}:5556"
+  #   environment:
+  #     # 应用端口配置（容器内也使用 5556）
+  #     - PORT=5556
+  #     # PostgreSQL 数据库连接（使用 Docker 服务名）
+  #     - DATABASE_URL=postgresql://${POSTGRES_USER:-zeroerr}:${POSTGRES_PASSWORD:-zero0000}@postgres:5432/${POSTGRES_DB:-zeroerr_meta}
+  #     # MinIO 连接（使用 Docker 服务名）
+  #     - MINIO_HOST=${MINIO_HOST:-minio}
+  #     - MINIO_PORT=${MINIO_PORT:-9000}
+  #     - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+  #     - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-zero0000}
+  #     - STORAGE_PROVIDER=${STORAGE_PROVIDER:-local}
+  #     # Redis 连接（使用 Docker 服务名）
+  #     - REDIS_URL=redis://:${REDIS_PASSWORD:-zero0000}@redis:6379/0
+  #     # Elasticsearch 连接（使用 Docker 服务名）
+  #     - ES_HOST=${ES_HOST:-elasticsearch}
+  #     - ES_PORT=${ES_PORT:-9200}
+  #     - ES_USER=${ES_USER:-elastic}
+  #     - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-zero0000}
+  #     # 其他配置
+  #     - DATA_DIR=/app/backend/data
+  #     - DOCKER=true
+  #   extra_hosts:
+  #     - host.docker.internal:host-gateway
+  #   restart: unless-stopped
+  #   networks:
+  #     - zeroerr-network
 
 volumes:
   postgres_data:
@@ -166,8 +189,8 @@ volumes:
     driver: local
   open-webui-data:
     driver: local
-  # elasticsearch_data:
-  #   driver: local
+  elasticsearch_data:
+    driver: local
 
 networks:
   zeroerr-network:

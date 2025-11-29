@@ -482,10 +482,27 @@ def upload_image(request, image_data, content_type, metadata, user):
             "content-type": content_type,
         },
     )
+    
+    # 确保图片上传时使用正确的 metadata
+    upload_metadata = metadata.copy() if isinstance(metadata, dict) else {}
+    
+    # 检查是否是聊天中的图片
+    chat_id = upload_metadata.get("chat_id")
+    if not chat_id and hasattr(request, "state") and hasattr(request.state, "get"):
+        chat_id = request.state.get("chat_id")
+    
+    if chat_id:
+        # 聊天中的图片 -> raw-data bucket
+        upload_metadata["source"] = "chat"
+        upload_metadata["chat_id"] = chat_id
+    elif "source" not in upload_metadata:
+        # 生成的图片（不在聊天中）-> assets bucket
+        upload_metadata["source"] = "image_generation"
+    
     file_item = upload_file_handler(
         request,
         file=file,
-        metadata=metadata,
+        metadata=upload_metadata,
         process=False,
         user=user,
     )

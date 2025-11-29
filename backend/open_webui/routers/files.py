@@ -38,6 +38,8 @@ from open_webui.models.files import (
 )
 from open_webui.models.knowledge import Knowledges
 from open_webui.models.knowledge_logs import KnowledgeLogs, KnowledgeLogForm
+from open_webui.models.knowledge_file_link import KnowledgeFileLinks
+from open_webui.models.knowledge_file_link import KnowledgeFileLinks
 
 from open_webui.routers.knowledge import get_knowledge, get_knowledge_list
 from open_webui.routers.retrieval import ProcessFileForm, process_file
@@ -364,26 +366,48 @@ def update_file_handler(
         # filename 保持原始名称，用于文件存储
         # new_file_id 用于数据库记录的唯一标识
         
-        # 确定文件保存的文件夹路径（使用原始文件的元数据）
-        folder_path = get_file_folder_path(original_meta, user.id)
-        filename_with_folder = f"{folder_path}/{filename}"
+        # 准备上传标签（用于 MinIO bucket 选择和路径生成）
+        upload_tags = {
+            "OpenWebUI-User-Email": user.email,
+            "OpenWebUI-User-Id": user.id,
+            "OpenWebUI-User-Name": user.name,
+            "OpenWebUI-File-Id": new_file_id,
+            "OpenWebUI-Original-File-Id": file_id,
+            "content_type": file.content_type,
+        }
         
-        # 确保文件夹存在
-        full_folder_path = os.path.join(UPLOAD_DIR, folder_path)
-        os.makedirs(full_folder_path, exist_ok=True)
-        print(f"✅ DEBUG: 更新文件已创建文件夹 - {full_folder_path}")
+        # 添加 metadata 中的信息到 tags（使用原始文件的元数据）
+        if original_meta.get("collection_name"):
+            upload_tags["collection_name"] = original_meta.get("collection_name")
+            upload_tags["OpenWebUI-Collection-Name"] = original_meta.get("collection_name")
         
-        contents, file_path = Storage.upload_file(
-            file.file,
-            filename_with_folder,
-            {
-                "OpenWebUI-User-Email": user.email,
-                "OpenWebUI-User-Id": user.id,
-                "OpenWebUI-User-Name": user.name,
-                "OpenWebUI-File-Id": new_file_id,
-                "OpenWebUI-Original-File-Id": file_id,
-            },
-        )
+        if updated_meta.get("source"):
+            upload_tags["source"] = updated_meta.get("source")
+        
+        if updated_meta.get("chat_id"):
+            upload_tags["chat_id"] = updated_meta.get("chat_id")
+            upload_tags["OpenWebUI-Chat-Id"] = updated_meta.get("chat_id")
+        
+        # 上传文件到存储（MinIO 或本地）
+        # MinIOStorageProvider 会根据 tags 自动选择 bucket 和生成路径
+        # 对于本地存储，仍需要创建文件夹（向后兼容）
+        if hasattr(Storage, '__class__') and Storage.__class__.__name__ == 'LocalStorageProvider':
+            folder_path = get_file_folder_path(original_meta, user.id)
+            filename_with_folder = f"{folder_path}/{filename}"
+            full_folder_path = os.path.join(UPLOAD_DIR, folder_path)
+            os.makedirs(full_folder_path, exist_ok=True)
+            contents, file_path = Storage.upload_file(
+                file.file,
+                filename_with_folder,
+                upload_tags,
+            )
+        else:
+            # MinIO 存储：直接使用文件名，provider 会生成完整路径
+            contents, file_path = Storage.upload_file(
+                file.file,
+                filename,
+                upload_tags,
+            )
         
         # 记录文件更新日志
         collection_name = original_meta.get("collection_name")
@@ -436,6 +460,33 @@ def update_file_handler(
                 }
             ),
         )
+        
+        # 数据库同步：如果文件更新时指定了知识库，自动创建关联记录
+        collection_name = original_meta.get("collection_name")
+        if collection_name and file_item:
+            try:
+                # 验证知识库是否存在
+                knowledge = Knowledges.get_knowledge_by_id(id=collection_name)
+                if knowledge:
+                    # 创建知识库-文件关联记录（新版本文件）
+                    link = KnowledgeFileLinks.create_link(
+                        knowledge_id=collection_name,
+                        file_id=new_file_id,
+                        is_indexed=False  # 默认未索引，后续处理完成后更新
+                    )
+                    if link:
+                        log.info(f"✅ 文件更新：创建知识库-文件关联: knowledge_id={collection_name}, file_id={new_file_id}")
+                    
+                    # 更新知识库的 file_ids（添加新版本，保留旧版本或替换取决于业务逻辑）
+                    data = knowledge.data or {}
+                    file_ids = data.get("file_ids", [])
+                    if new_file_id not in file_ids:
+                        file_ids.append(new_file_id)
+                        data["file_ids"] = file_ids
+                        Knowledges.update_knowledge_data_by_id(id=collection_name, data=data)
+                        log.info(f"✅ 文件更新：更新知识库 file_ids: knowledge_id={collection_name}")
+            except Exception as e:
+                log.warning(f"文件更新：创建知识库-文件关联时出错: {e}")
         
         if process:
             if background_tasks and process_in_background:
@@ -578,6 +629,38 @@ def upload_file_handler(
         "upload_date": int(time.time()),
         **file_metadata  # 用户提供的元数据优先级更高
     }
+    
+    # 自动识别文件来源（聊天文件或知识库文件）
+    # 策略：
+    # 1. 如果 metadata 中有 chat_id，标记为聊天文件
+    # 2. 如果没有 collection_name（不是知识库文件），默认视为聊天文件
+    # 3. 从 request.state 尝试获取 chat_id（如果存在）
+    
+    # 首先尝试从 request.state 获取 chat_id（如果前端通过其他方式传递）
+    chat_id_from_request = None
+    if hasattr(request, "state") and hasattr(request.state, "get"):
+        chat_id_from_request = request.state.get("chat_id")
+    
+    # 确定 chat_id（优先级：metadata > request.state）
+    chat_id = enhanced_metadata.get("chat_id") or chat_id_from_request
+    
+    # 判断是否为知识库文件
+    is_knowledge_file = bool(enhanced_metadata.get("collection_name"))
+    
+    # 如果是知识库文件，标记 source 为 knowledge（如果还没有）
+    if is_knowledge_file:
+        if not enhanced_metadata.get("source"):
+            enhanced_metadata["source"] = "knowledge"
+    else:
+        # 非知识库文件，默认视为聊天文件
+        enhanced_metadata["source"] = "chat"
+        if chat_id:
+            enhanced_metadata["chat_id"] = chat_id
+    
+    # 如果已经明确标记为聊天文件，确保 source 正确
+    if enhanced_metadata.get("source") == "chat":
+        if chat_id and not enhanced_metadata.get("chat_id"):
+            enhanced_metadata["chat_id"] = chat_id
 
     try:
         # 文件扩展名已经在上面定义了，这里不需要重复定义
@@ -601,26 +684,47 @@ def upload_file_handler(
         # filename 保持原始名称，用于文件存储
         # id 用于数据库记录的唯一标识
         
-        # 确定文件保存的文件夹路径
-        folder_path = get_file_folder_path(enhanced_metadata, user.id)
-        filename_with_folder = f"{folder_path}/{filename}"
-        print(f"🔍 DEBUG: 文件夹路径 - folder_path: {folder_path}, filename_with_folder: {filename_with_folder}")
+        # 准备上传标签（用于 MinIO bucket 选择和路径生成）
+        upload_tags = {
+            "OpenWebUI-User-Email": user.email,
+            "OpenWebUI-User-Id": user.id,
+            "OpenWebUI-User-Name": user.name,
+            "OpenWebUI-File-Id": id,
+            "content_type": file.content_type,
+        }
         
-        # 确保文件夹存在
-        full_folder_path = os.path.join(UPLOAD_DIR, folder_path)
-        os.makedirs(full_folder_path, exist_ok=True)
-        print(f"✅ DEBUG: 已创建文件夹 - {full_folder_path}")
+        # 添加 metadata 中的信息到 tags（用于 bucket 选择）
+        if enhanced_metadata.get("collection_name"):
+            upload_tags["collection_name"] = enhanced_metadata.get("collection_name")
+            upload_tags["OpenWebUI-Collection-Name"] = enhanced_metadata.get("collection_name")
         
-        contents, file_path = Storage.upload_file(
-            file.file,
-            filename_with_folder,
-            {
-                "OpenWebUI-User-Email": user.email,
-                "OpenWebUI-User-Id": user.id,
-                "OpenWebUI-User-Name": user.name,
-                "OpenWebUI-File-Id": id,
-            },
-        )
+        if enhanced_metadata.get("source"):
+            upload_tags["source"] = enhanced_metadata.get("source")
+        
+        if enhanced_metadata.get("chat_id"):
+            upload_tags["chat_id"] = enhanced_metadata.get("chat_id")
+            upload_tags["OpenWebUI-Chat-Id"] = enhanced_metadata.get("chat_id")
+        
+        # 上传文件到存储（MinIO 或本地）
+        # MinIOStorageProvider 会根据 tags 自动选择 bucket 和生成路径
+        # 对于本地存储，仍需要创建文件夹（向后兼容）
+        if hasattr(Storage, '__class__') and Storage.__class__.__name__ == 'LocalStorageProvider':
+            folder_path = get_file_folder_path(enhanced_metadata, user.id)
+            filename_with_folder = f"{folder_path}/{filename}"
+            full_folder_path = os.path.join(UPLOAD_DIR, folder_path)
+            os.makedirs(full_folder_path, exist_ok=True)
+            contents, file_path = Storage.upload_file(
+                file.file,
+                filename_with_folder,
+                upload_tags,
+            )
+        else:
+            # MinIO 存储：直接使用文件名，provider 会生成完整路径
+            contents, file_path = Storage.upload_file(
+                file.file,
+                filename,
+                upload_tags,
+            )
 
         file_item = Files.insert_new_file(
             user.id,
@@ -643,6 +747,41 @@ def upload_file_handler(
                 }
             ),
         )
+        
+        # 数据库同步：如果文件上传时指定了知识库，自动创建关联记录
+        collection_name = enhanced_metadata.get("collection_name")
+        if collection_name and file_item:
+            try:
+                # 验证知识库是否存在
+                knowledge = Knowledges.get_knowledge_by_id(id=collection_name)
+                if knowledge:
+                    # 创建知识库-文件关联记录
+                    link = KnowledgeFileLinks.create_link(
+                        knowledge_id=collection_name,
+                        file_id=id,
+                        is_indexed=False  # 默认未索引，后续处理完成后更新
+                    )
+                    if link:
+                        log.info(f"✅ 自动创建知识库-文件关联: knowledge_id={collection_name}, file_id={id}")
+                    
+                    # 更新知识库的 file_ids（如果还没有）
+                    data = knowledge.data or {}
+                    file_ids = data.get("file_ids", [])
+                    if id not in file_ids:
+                        file_ids.append(id)
+                        data["file_ids"] = file_ids
+                        Knowledges.update_knowledge_data_by_id(id=collection_name, data=data)
+                        log.info(f"✅ 更新知识库 file_ids: knowledge_id={collection_name}")
+            except Exception as e:
+                log.warning(f"创建知识库-文件关联时出错（可能已存在）: {e}")
+        
+        # 数据库同步：聊天文件记录
+        # 聊天文件的信息直接存储在聊天消息的 files 字段中，这里记录日志以便追踪
+        chat_id = enhanced_metadata.get("chat_id")
+        if enhanced_metadata.get("source") == "chat" and chat_id:
+            log.info(f"✅ 聊天文件上传完成: chat_id={chat_id}, file_id={id}, path={file_path}")
+        
+        # 注意：聊天文件不需要额外的关联表，因为文件信息直接存储在聊天消息的 files 字段中
 
 
         if process:
