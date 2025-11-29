@@ -9,6 +9,16 @@ from typing import BinaryIO, Tuple, Dict
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+
+try:
+    from minio import Minio
+    from minio.error import S3Error
+    MINIO_AVAILABLE = True
+except ImportError:
+    MINIO_AVAILABLE = False
+    # Log will be initialized later, use print for early import
+    import sys
+    print("Warning: minio library not installed. MinIO storage provider will not be available.", file=sys.stderr)
 from open_webui.config import (
     S3_ACCESS_KEY_ID,
     S3_BUCKET_NAME,
@@ -26,6 +36,15 @@ from open_webui.config import (
     AZURE_STORAGE_KEY,
     STORAGE_PROVIDER,
     UPLOAD_DIR,
+    MINIO_HOST,
+    MINIO_PORT,
+    MINIO_ACCESS_KEY,
+    MINIO_SECRET_KEY,
+    MINIO_SECURE,
+    MINIO_BUCKET_RAW_DATA,
+    MINIO_BUCKET_RAG,
+    MINIO_BUCKET_ASSETS,
+    MINIO_BUCKET_EXTERNAL,
 )
 from google.cloud import storage
 from google.cloud.exceptions import GoogleCloudError, NotFound
@@ -375,6 +394,239 @@ class AzureStorageProvider(StorageProvider):
         LocalStorageProvider.delete_all_files()
 
 
+class MinIOStorageProvider(StorageProvider):
+    """MinIO storage provider supporting multiple buckets for different use cases."""
+    
+    # Bucket mapping for different file types
+    BUCKETS = {
+        "raw-data": MINIO_BUCKET_RAW_DATA,
+        "knowledge": MINIO_BUCKET_RAG,  # Knowledge base files bucket (renamed from "rag")
+        "assets": MINIO_BUCKET_ASSETS,
+        "external": MINIO_BUCKET_EXTERNAL,
+    }
+    
+    def __init__(self):
+        if not MINIO_AVAILABLE:
+            raise RuntimeError("minio library is not installed. Please install it with: pip install minio")
+        
+        # Build MinIO endpoint
+        endpoint = f"{MINIO_HOST}:{MINIO_PORT}"
+        if "://" not in endpoint:
+            endpoint = endpoint.replace("http://", "").replace("https://", "")
+        
+        # Initialize MinIO client
+        self.minio_client = Minio(
+            endpoint,
+            access_key=MINIO_ACCESS_KEY,
+            secret_key=MINIO_SECRET_KEY,
+            secure=MINIO_SECURE
+        )
+        
+        # Ensure all buckets exist
+        self._ensure_buckets_exist()
+    
+    def _ensure_buckets_exist(self):
+        """Create buckets if they don't exist."""
+        for bucket_name in self.BUCKETS.values():
+            try:
+                if not self.minio_client.bucket_exists(bucket_name):
+                    self.minio_client.make_bucket(bucket_name)
+                    log.info(f"Created MinIO bucket: {bucket_name}")
+            except S3Error as e:
+                log.error(f"Error creating MinIO bucket {bucket_name}: {e}")
+                raise RuntimeError(f"Failed to create MinIO bucket {bucket_name}: {e}")
+    
+    def _get_bucket_for_file(self, filename: str, tags: Dict[str, str] = None) -> str:
+        """Determine which bucket to use based on file type or tags.
+        
+        Bucket selection strategy:
+        - rag: Knowledge base files (collection_name in tags)
+        - assets: Generated images (image_generation source, not from chat)
+        - raw-data: Chat files (chat source or chat_id) or general uploads (default)
+        - external: External API sync data
+        """
+        if tags:
+            # Check explicit bucket hint
+            bucket_hint = tags.get("bucket", tags.get("bucket_type"))
+            if bucket_hint and bucket_hint in self.BUCKETS:
+                return self.BUCKETS[bucket_hint]
+            
+            # Knowledge base files -> knowledge bucket (优先级最高)
+            if tags.get("collection_name") or tags.get("OpenWebUI-Collection-Name"):
+                return self.BUCKETS["knowledge"]
+            
+            # Chat files (including images uploaded in chat) -> raw-data bucket
+            if (tags.get("source") == "chat" or 
+                tags.get("chat_id") or 
+                tags.get("OpenWebUI-Chat-Id")):
+                return self.BUCKETS["raw-data"]
+            
+            # Generated images (not from chat) -> assets bucket
+            if tags.get("source") == "image_generation":
+                return self.BUCKETS["assets"]
+            
+            # External sync -> external bucket
+            if tags.get("source") == "external" or tags.get("external_sync"):
+                return self.BUCKETS["external"]
+        
+        # Default to raw-data for general files
+        return self.BUCKETS["raw-data"]
+    
+    def _extract_minio_path(self, file_path: str) -> Tuple[str, str]:
+        """Extract bucket and object key from MinIO path.
+        
+        Returns:
+            Tuple of (bucket_name, object_key)
+        """
+        # Handle minio://bucket/key format
+        if file_path.startswith("minio://"):
+            path_parts = file_path[8:].split("/", 1)
+            if len(path_parts) == 2:
+                return path_parts[0], path_parts[1]
+        
+        # Handle legacy format or assume raw-data bucket
+        # Format: bucket/object_key or just object_key
+        if "/" in file_path:
+            parts = file_path.split("/", 1)
+            if parts[0] in self.BUCKETS.values():
+                return parts[0], parts[1]
+        
+        # Default: assume raw-data bucket
+        return self.BUCKETS["raw-data"], file_path
+    
+    def upload_file(
+        self, file: BinaryIO, filename: str, tags: Dict[str, str]
+    ) -> Tuple[bytes, str]:
+        """Handles uploading of the file to MinIO storage.
+        
+        Path strategy:
+        - raw-data: chat/{user_id}/{filename} (for chat files) or raw/{user_id}/{filename} (for general uploads)
+        - knowledge: knowledge/{kb_id}/{file_id}.{ext}
+        - assets: assets/{user_id}/{file_id}.{ext} or assets/{user_id}/{filename}
+        - external: external/{source_id}/{filename}
+        """
+        contents = file.read()
+        if not contents:
+            raise ValueError(ERROR_MESSAGES.EMPTY_CONTENT)
+        
+        # Determine bucket
+        bucket_name = self._get_bucket_for_file(filename, tags)
+        
+        # Generate object key based on bucket and tags
+        object_key = self._generate_object_key(filename, bucket_name, tags)
+        
+        # Upload to MinIO
+        try:
+            from io import BytesIO
+            file_obj = BytesIO(contents)
+            self.minio_client.put_object(
+                bucket_name,
+                object_key,
+                file_obj,
+                length=len(contents),
+                content_type=tags.get("content_type", "application/octet-stream")
+            )
+            
+            # Return MinIO path format: minio://bucket/key
+            minio_path = f"minio://{bucket_name}/{object_key}"
+            log.info(f"Uploaded file to MinIO: {minio_path}")
+            return contents, minio_path
+        except S3Error as e:
+            raise RuntimeError(f"Error uploading file to MinIO: {e}")
+    
+    def _generate_object_key(self, filename: str, bucket_name: str, tags: Dict[str, str]) -> str:
+        """Generate object key based on bucket and file type.
+        
+        Path strategies:
+        - raw-data: chat/{user_id}/{filename} (for chat files) or raw/{user_id}/{filename} (for general uploads)
+        - knowledge: knowledge/{kb_id}/{file_id}.{ext}
+        - assets: assets/{user_id}/{file_id}.{ext} or assets/{user_id}/{filename}
+        - external: external/{source_id}/{filename}
+        """
+        import os
+        file_ext = os.path.splitext(filename)[1]
+        file_id = tags.get("OpenWebUI-File-Id", "")
+        user_id = tags.get("OpenWebUI-User-Id", "")
+        
+        if bucket_name == self.BUCKETS["knowledge"]:
+            # Knowledge base files: knowledge/{kb_id}/{file_id}.{ext}
+            kb_id = tags.get("collection_name") or tags.get("OpenWebUI-Collection-Name") or "default"
+            if file_id:
+                return f"knowledge/{kb_id}/{file_id}{file_ext}"
+            return f"knowledge/{kb_id}/{filename}"
+        
+        elif bucket_name == self.BUCKETS["assets"]:
+            # Generated images (not from chat): assets/{user_id}/{file_id}.{ext}
+            if file_id and user_id:
+                return f"assets/{user_id}/{file_id}{file_ext}"
+            if user_id:
+                return f"assets/{user_id}/{filename}"
+            return f"assets/{filename}"
+        
+        elif bucket_name == self.BUCKETS["external"]:
+            # External sync: external/{source_id}/{filename}
+            source_id = tags.get("source_id") or tags.get("external_source_id") or "default"
+            return f"external/{source_id}/{filename}"
+        
+        else:  # raw-data
+            # Chat files: chat/{user_id}/{filename}
+            if tags.get("source") == "chat" or tags.get("chat_id") or tags.get("OpenWebUI-Chat-Id"):
+                if user_id:
+                    return f"chat/{user_id}/{filename}"
+                return f"chat/{filename}"
+            # General uploads: raw/{user_id}/{filename}
+            if user_id:
+                return f"raw/{user_id}/{filename}"
+            return f"raw/{filename}"
+    
+    def get_file(self, file_path: str) -> str:
+        """Handles downloading of the file from MinIO storage."""
+        try:
+            bucket_name, object_key = self._extract_minio_path(file_path)
+            
+            # Download to local temporary file
+            local_file_path = os.path.join(str(UPLOAD_DIR), object_key.split("/")[-1])
+            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+            
+            self.minio_client.fget_object(bucket_name, object_key, local_file_path)
+            log.info(f"Downloaded file from MinIO: {file_path} -> {local_file_path}")
+            return local_file_path
+        except S3Error as e:
+            raise RuntimeError(f"Error downloading file from MinIO: {e}")
+    
+    def delete_file(self, file_path: str) -> None:
+        """Handles deletion of the file from MinIO storage."""
+        try:
+            bucket_name, object_key = self._extract_minio_path(file_path)
+            self.minio_client.remove_object(bucket_name, object_key)
+            log.info(f"Deleted file from MinIO: {file_path}")
+        except S3Error as e:
+            raise RuntimeError(f"Error deleting file from MinIO: {e}")
+        
+        # Always delete from local storage if exists
+        try:
+            LocalStorageProvider.delete_file(file_path)
+        except Exception:
+            pass  # Ignore local file deletion errors
+    
+    def delete_all_files(self) -> None:
+        """Handles deletion of all files from MinIO storage."""
+        try:
+            for bucket_name in self.BUCKETS.values():
+                try:
+                    objects = self.minio_client.list_objects(bucket_name, recursive=True)
+                    for obj in objects:
+                        self.minio_client.remove_object(bucket_name, obj.object_name)
+                    log.info(f"Deleted all files from MinIO bucket: {bucket_name}")
+                except S3Error as e:
+                    log.warning(f"Error deleting files from bucket {bucket_name}: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Error deleting all files from MinIO: {e}")
+        
+        # Always delete from local storage
+        LocalStorageProvider.delete_all_files()
+
+
 def get_storage_provider(storage_provider: str):
     if storage_provider == "local":
         Storage = LocalStorageProvider()
@@ -384,6 +636,8 @@ def get_storage_provider(storage_provider: str):
         Storage = GCSStorageProvider()
     elif storage_provider == "azure":
         Storage = AzureStorageProvider()
+    elif storage_provider == "minio":
+        Storage = MinIOStorageProvider()
     else:
         raise RuntimeError(f"Unsupported storage provider: {storage_provider}")
     return Storage

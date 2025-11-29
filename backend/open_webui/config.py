@@ -902,6 +902,18 @@ S3_USE_ACCELERATE_ENDPOINT = (
 S3_ADDRESSING_STYLE = os.environ.get("S3_ADDRESSING_STYLE", None)
 S3_ENABLE_TAGGING = os.getenv("S3_ENABLE_TAGGING", "false").lower() == "true"
 
+# MinIO Configuration
+MINIO_HOST = os.environ.get("MINIO_HOST", "localhost")
+MINIO_PORT = os.environ.get("MINIO_PORT", "9000")
+MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", os.environ.get("MINIO_ROOT_USER", "minioadmin"))
+MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", os.environ.get("MINIO_ROOT_PASSWORD", "zero0000"))
+MINIO_SECURE = os.environ.get("MINIO_SECURE", "false").lower() == "true"
+# MinIO Buckets
+MINIO_BUCKET_RAW_DATA = os.environ.get("MINIO_BUCKET_RAW_DATA", "raw-data")
+MINIO_BUCKET_RAG = os.environ.get("MINIO_BUCKET_RAG", "knowledge")
+MINIO_BUCKET_ASSETS = os.environ.get("MINIO_BUCKET_ASSETS", "assets")
+MINIO_BUCKET_EXTERNAL = os.environ.get("MINIO_BUCKET_EXTERNAL", "external")
+
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", None)
 GOOGLE_APPLICATION_CREDENTIALS_JSON = os.environ.get(
     "GOOGLE_APPLICATION_CREDENTIALS_JSON", None
